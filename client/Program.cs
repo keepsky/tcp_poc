@@ -22,7 +22,9 @@ namespace tcp_poc_client
     }
     class Type4 {
         public ushort route_num { get; set; }
-        public byte status { get; set; }
+        public byte status1 { get; set; }
+        public byte status2 { get; set; }
+        public byte status3 { get; set; }
     }
 
     class Program
@@ -90,7 +92,7 @@ namespace tcp_poc_client
                                 break;
                             case 4:
                                 var t4 = JsonSerializer.Deserialize<Type4>(jsonString);
-                                Console.WriteLine($"Deserialized Object [Type4] -> route_num: {t4.route_num}, status: {t4.status}");
+                                Console.WriteLine($"Deserialized Object [Type4] -> route_num: {t4.route_num}, status1: {t4.status1}, status2: {t4.status2}, status3: {t4.status3}");
                                 break;
                         }
                     }
