@@ -1,8 +1,10 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -34,6 +36,44 @@ struct type4 {
 };
 #pragma pack(pop)
 
+// --- Protobuf Encoder Helpers ---
+int encode_varint(uint8_t *buffer, uint64_t value) {
+  int len = 0;
+  while (value > 0x7F) {
+    buffer[len++] = (uint8_t)((value & 0x7F) | 0x80);
+    value >>= 7;
+  }
+  buffer[len++] = (uint8_t)(value & 0x7F);
+  return len;
+}
+
+int encode_tag(uint8_t *buffer, uint32_t field_num, uint8_t wire_type) {
+  return encode_varint(buffer, (field_num << 3) | wire_type);
+}
+
+int encode_uint32_field(uint8_t *buffer, uint32_t field_num, uint32_t value) {
+  if (value == 0)
+    return 0; // omit default value in proto3
+  int len = 0;
+  len += encode_tag(buffer + len, field_num, 0); // wire type 0: varint
+  len += encode_varint(buffer + len, value);
+  return len;
+}
+
+int encode_string_field(uint8_t *buffer, uint32_t field_num, const char *str,
+                        int str_len) {
+  if (str_len == 0)
+    return 0; // omit default value in proto3
+  int len = 0;
+  len +=
+      encode_tag(buffer + len, field_num, 2); // wire type 2: length delimited
+  len += encode_varint(buffer + len, str_len);
+  memcpy(buffer + len, str, str_len);
+  len += str_len;
+  return len;
+}
+// ---------------------------------
+
 int main() {
   WSADATA wsaData;
   SOCKET listenSocket = INVALID_SOCKET, clientSocket = INVALID_SOCKET;
@@ -41,7 +81,7 @@ int main() {
   int clientAddrLen = sizeof(clientAddr);
   char recvbuf[4];
   int res;
-  char json_payload[1024];
+  uint8_t payload_buffer[1024];
 
   // Initialize Winsock
   res = WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -88,7 +128,11 @@ int main() {
       return 1;
     }
 
-    printf("Client connected: %s\n", inet_ntoa(clientAddr.sin_addr));
+    // Use inet_ntop to avoid deprecation warnings if desired, or keep as is for
+    // PoC
+    char ipstr[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &clientAddr.sin_addr, ipstr, sizeof(ipstr));
+    printf("Client connected: %s\n", ipstr);
 
     while (1) {
       int bytesReceived = 0;
@@ -110,18 +154,26 @@ int main() {
       int req_type = ntohl(*(int *)recvbuf);
       printf("Received request type: %d\n", req_type);
 
-      json_payload[0] = '\0';
+      int payload_len = 0;
 
       switch (req_type) {
       case 1: {
         struct type1 t1;
-        memcpy(t1.time, "1234567", 7);
+        memset(&t1, 0, sizeof(t1));
+        memcpy(t1.time, "12:34:5", 7);
         t1.num = 45;
-        strncpy(t1.param, "This is dummy parameter for type1.", 49);
+        strncpy_s(t1.param, sizeof(t1.param),
+                  "This is dummy parameter for type1 protobuf.", _TRUNCATE);
 
-        snprintf(json_payload, sizeof(json_payload),
-                 "{\"time\":\"%.7s\", \"num\":%u, \"param\":\"%.49s\"}",
-                 t1.time, t1.num, t1.param);
+        int param_len = (int)strnlen(t1.param, sizeof(t1.param));
+        int time_len = 7;
+
+        payload_len += encode_string_field(payload_buffer + payload_len, 1,
+                                           t1.time, time_len);
+        payload_len +=
+            encode_uint32_field(payload_buffer + payload_len, 2, t1.num);
+        payload_len += encode_string_field(payload_buffer + payload_len, 3,
+                                           t1.param, param_len);
         break;
       }
       case 2: {
@@ -129,8 +181,10 @@ int main() {
         t2.pm_num = 1002;
         t2.status = 1;
 
-        snprintf(json_payload, sizeof(json_payload),
-                 "{\"pm_num\":%hu, \"status\":%u}", t2.pm_num, t2.status);
+        payload_len +=
+            encode_uint32_field(payload_buffer + payload_len, 1, t2.pm_num);
+        payload_len +=
+            encode_uint32_field(payload_buffer + payload_len, 2, t2.status);
         break;
       }
       case 3: {
@@ -138,37 +192,46 @@ int main() {
         t3.signal_num = 3003;
         t3.status = 2;
 
-        snprintf(json_payload, sizeof(json_payload),
-                 "{\"signal_num\":%hu, \"status\":%u}", t3.signal_num,
-                 t3.status);
+        payload_len +=
+            encode_uint32_field(payload_buffer + payload_len, 1, t3.signal_num);
+        payload_len +=
+            encode_uint32_field(payload_buffer + payload_len, 2, t3.status);
         break;
       }
       case 4: {
         struct type4 t4;
+        memset(&t4, 0, sizeof(t4));
         t4.route_num = 4004;
         t4.status1 = 1;
         t4.status2 = 10;
         t4.status3 = 5;
 
-        snprintf(json_payload, sizeof(json_payload),
-                 "{\"route_num\":%hu, \"status1\":%u, \"status2\":%u, "
-                 "\"status3\":%u}",
-                 t4.route_num, t4.status1, t4.status2, t4.status3);
+        payload_len +=
+            encode_uint32_field(payload_buffer + payload_len, 1, t4.route_num);
+        payload_len +=
+            encode_uint32_field(payload_buffer + payload_len, 2, t4.status1);
+        payload_len +=
+            encode_uint32_field(payload_buffer + payload_len, 3, t4.status2);
+        payload_len +=
+            encode_uint32_field(payload_buffer + payload_len, 4, t4.status3);
         break;
       }
       default:
         printf("Unknown condition %d\n", req_type);
-        snprintf(json_payload, sizeof(json_payload), "{}");
         break;
       }
 
-      int payload_len = (int)strlen(json_payload);
       int net_len = htonl(payload_len);
 
+      // Send length prefix
       send(clientSocket, (char *)&net_len, 4, 0);
-      send(clientSocket, json_payload, payload_len, 0);
 
-      printf("Sent %d bytes of JSON: %s\n", payload_len, json_payload);
+      // Send payload if length > 0
+      if (payload_len > 0) {
+        send(clientSocket, (char *)payload_buffer, payload_len, 0);
+      }
+
+      printf("Sent %d bytes of Protobuf data.\n", payload_len);
     }
     closesocket(clientSocket);
   }

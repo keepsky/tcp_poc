@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+message Type1 {
+  string time = 1;
+  uint32 num = 2;
+  string param = 3;
+}
+
+message Type2 {
+  uint32 pm_num = 1;
+  uint32 status = 2;
+}
+
+message Type3 {
+  uint32 signal_num = 1;
+  uint32 status = 2;
+}
+
+message Type4 {
+  uint32 route_num = 1;
+  uint32 status1 = 2;
+  uint32 status2 = 3;
+  uint32 status3 = 4;
+}
