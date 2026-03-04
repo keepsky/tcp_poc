@@ -1,0 +1,30 @@
+# C / C++
+# Compiled Object files
+*.o
+*.obj
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.lay
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# C# (.NET)
+bin/
+obj/
+
+# IDE / Editor
+.vs/
+.vscode/
+*.user
+*.suo
