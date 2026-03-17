@@ -72,9 +72,9 @@ namespace tcp_poc_client
                         await ws.SendAsync(new ArraySegment<byte>(reqBytes), WebSocketMessageType.Text, true, CancellationToken.None);
                         Console.WriteLine($"[SEND] {reqJson}");
 
-                        byte[] recvBuffer = new byte[100 * 1024]; // 100K buffer
+                        byte[] recvBuffer = new byte[200 * 1024]; // 200K buffer to hold up to 150K payload sizes
                         
-                        for (int i = 0; i < 10; i++)
+                        for (int i = 0; i < 9; i++) // 9 variable sizes from server
                         {
                             WebSocketReceiveResult result;
                             int offset = 0;
@@ -89,15 +89,8 @@ namespace tcp_poc_client
                                 break;
                             }
 
-                            string respJson = Encoding.UTF8.GetString(recvBuffer, 0, offset);
-                            
-                            try {
-                                var parsedJson = JsonDocument.Parse(respJson);
-                                string singleLineJson = JsonSerializer.Serialize(parsedJson, jsonOptions);
-                                Console.WriteLine($"[RECV {i + 1}/10] {singleLineJson}");
-                            } catch {
-                                Console.WriteLine($"[RECV {i + 1}/10] {respJson.Replace('\n', ' ').Replace('\r', ' ')}");
-                            }
+                            // Do not format/print the full JSON, just report its size and sequence
+                            Console.WriteLine($"[RECV {i + 1}/9] 데이터 크기: {offset} bytes");
                         }
 
                         if (ws.State == WebSocketState.Open)
