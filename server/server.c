@@ -25,8 +25,9 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
       mg_http_reply(c, 404, "", "Not Found\n");
     }
   } else if (ev == MG_EV_WS_MSG) {
-    struct mg_ws_message *wm = (struct mg_ws_message *) ev_data;
-    printf("Received Request: %.*s\n", (int) wm->data.len, wm->data.buf);
+    char client_ip[64];
+    mg_snprintf(client_ip, sizeof(client_ip), "%M", mg_print_ip, &c->rem);
+    printf("Received Request from Client IP: %s\n", client_ip);
 
     // Send JSON responses of varying sizes
     printf("Sending %d JSON responses of varying sizes...\n", num_sizes);

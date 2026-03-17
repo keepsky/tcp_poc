@@ -8,7 +8,7 @@
    * **기능**: TCP 포트 `8890`을 열고 HTTP 연결을 WebSocket으로 업그레이드하여 대기합니다. 클라이언트로부터 `CONTROL_REQ` JSON 요청을 수신하면, 지정된 9개의 크기(`0.5K, 1K, 2K, 10K, 50K, 75K, 100K, 150K, 1K`)에 맞추어 `STATUS_UPDATE` JSON 페이로드를 동적으로 더미 문자열로 패딩(Padding)하여 연속해서 응답(Push)합니다.
 
 2. **Client (`/client`)**
-   * **언어**: `C# (.NET 9 Console App)`
+   * **언어**: `C# (.NET 10 Console App)`
    * **기능**: `ClientWebSocket`을 사용하여 `ws://127.0.0.1:8890`에 연결합니다. 연결 후 제어 요청(`CONTROL_REQ`) JSON 모델을 1줄(Single Line)로 축약하여 서버에 전송합니다. 이후 서버로부터 응답받는 9번의 메시지에 대해 전체 JSON 내용을 출력하는 대신 **수신 순서(Sequence)와 수신된 데이터 크기(Bytes)** 만 출력합니다. 9번의 수신 루프가 한 번 끝날 때마다 2초의 지연 시간을 갖고, 사용자가 프로그램을 강제 종료(Ctrl+C)할 때까지 메시지 송수신 과정을 무한 반복합니다.
 
 ---
