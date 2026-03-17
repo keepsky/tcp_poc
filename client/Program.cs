@@ -1,134 +1,118 @@
-﻿using System;
-using System.Buffers.Binary;
-using System.IO;
-using System.Net.Sockets;
+using System;
+using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
 using System.Threading;
-using ProtoBuf;
+using System.Threading.Tasks;
 
 namespace tcp_poc_client
 {
-    [ProtoContract]
-    class Type1 {
-        [ProtoMember(1)]
-        public string time { get; set; }
-        [ProtoMember(2)]
-        public uint num { get; set; }
-        [ProtoMember(3)]
-        public string param { get; set; }
+    public class RequestHeader {
+        public string msgType { get; set; }
+        public string msgId { get; set; }
+        public string timestamp { get; set; }
     }
-    
-    [ProtoContract]
-    class Type2 {
-        [ProtoMember(1)]
-        public uint pm_num { get; set; }
-        [ProtoMember(2)]
-        public uint status { get; set; }
+
+    public class RequestOptions {
+        public bool force { get; set; }
     }
-    
-    [ProtoContract]
-    class Type3 {
-        [ProtoMember(1)]
-        public uint signal_num { get; set; }
-        [ProtoMember(2)]
-        public uint status { get; set; }
+
+    public class RequestBody {
+        public string command { get; set; }
+        public string routeId { get; set; }
+        public string startSignal { get; set; }
+        public string endSignal { get; set; }
+        public RequestOptions options { get; set; }
     }
-    
-    [ProtoContract]
-    class Type4 {
-        [ProtoMember(1)]
-        public uint route_num { get; set; }
-        [ProtoMember(2)]
-        public uint status1 { get; set; }
-        [ProtoMember(3)]
-        public uint status2 { get; set; }
-        [ProtoMember(4)]
-        public uint status3 { get; set; }
+
+    public class ControlRequest {
+        public RequestHeader header { get; set; }
+        public RequestBody body { get; set; }
     }
 
     class Program
     {
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
-            try
+            var req = new ControlRequest {
+                header = new RequestHeader {
+                    msgType = "CONTROL_REQ",
+                    msgId = "REQ_20260313_001",
+                    timestamp = "2026-03-13T18:00:01Z"
+                },
+                body = new RequestBody {
+                    command = "SET_ROUTE",
+                    routeId = "R201",
+                    startSignal = "S10",
+                    endSignal = "S20",
+                    options = new RequestOptions { force = false }
+                }
+            };
+
+            var jsonOptions = new JsonSerializerOptions { WriteIndented = false };
+            string reqJson = JsonSerializer.Serialize(req, jsonOptions);
+            
+            Console.WriteLine("Client started. Press Ctrl+C to terminate.");
+            
+            while (true)
             {
-                using TcpClient client = new TcpClient("127.0.0.1", 8890);
-                using NetworkStream stream = client.GetStream();
-                Console.WriteLine("Connected to server 127.0.0.1:8890.");
-
-                int type = 1;
-
-                while (true)
+                try
                 {
-                    // Send request message (1~4)
-                    Console.WriteLine($"\nSending request for message type {type}...");
-                    byte[] reqBuffer = new byte[4];
-                    BinaryPrimitives.WriteInt32BigEndian(reqBuffer, type);
-                    stream.Write(reqBuffer, 0, reqBuffer.Length);
+                    using var ws = new ClientWebSocket();
+                    Uri serverUri = new Uri("ws://127.0.0.1:8890");
+                    Console.WriteLine($"\n[INFO] Connecting to {serverUri}...");
+                    
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    await ws.ConnectAsync(serverUri, cts.Token);
+                    Console.WriteLine("[INFO] Connected.");
 
-                    // Receive length
-                    byte[] lengthBuffer = new byte[4];
-                    int bytesRead = 0;
-                    while (bytesRead < 4)
+                    while (ws.State == WebSocketState.Open)
                     {
-                        int read = stream.Read(lengthBuffer, bytesRead, 4 - bytesRead);
-                        if (read == 0) throw new Exception("Server disconnected.");
-                        bytesRead += read;
-                    }
+                        byte[] reqBytes = Encoding.UTF8.GetBytes(reqJson);
+                        await ws.SendAsync(new ArraySegment<byte>(reqBytes), WebSocketMessageType.Text, true, CancellationToken.None);
+                        Console.WriteLine($"[SEND] {reqJson}");
 
-                    int protoLength = BinaryPrimitives.ReadInt32BigEndian(lengthBuffer);
-                    if (protoLength < 0 || protoLength > 1024 * 1024) throw new Exception("Invalid payload length");
-
-                    // Receive Protobuf binary payload
-                    byte[] payloadBuffer = new byte[protoLength];
-                    bytesRead = 0;
-                    while (bytesRead < protoLength)
-                    {
-                        int read = stream.Read(payloadBuffer, bytesRead, protoLength - bytesRead);
-                        if (read == 0) throw new Exception("Server disconnected.");
-                        bytesRead += read;
-                    }
-
-                    Console.WriteLine($"Received {protoLength} bytes of Protobuf data.");
-
-                    using var ms = new MemoryStream(payloadBuffer);
-
-                    // Deserialize to object and print
-                    try
-                    {
-                        switch (type)
+                        byte[] recvBuffer = new byte[100 * 1024]; // 100K buffer
+                        
+                        for (int i = 0; i < 10; i++)
                         {
-                            case 1:
-                                var t1 = Serializer.Deserialize<Type1>(ms);
-                                // For proto3, omitted values resolve to empty or 0. Make sure to handle null strings.
-                                Console.WriteLine($"Deserialized Object [Type1] -> time: {t1?.time}, num: {t1?.num}, param: {t1?.param}");
+                            WebSocketReceiveResult result;
+                            int offset = 0;
+                            do {
+                                result = await ws.ReceiveAsync(new ArraySegment<byte>(recvBuffer, offset, recvBuffer.Length - offset), CancellationToken.None);
+                                offset += result.Count;
+                            } while (!result.EndOfMessage);
+
+                            if (result.MessageType == WebSocketMessageType.Close)
+                            {
+                                Console.WriteLine("[INFO] Server closed connection.");
                                 break;
-                            case 2:
-                                var t2 = Serializer.Deserialize<Type2>(ms);
-                                Console.WriteLine($"Deserialized Object [Type2] -> pm_num: {t2?.pm_num}, status: {t2?.status}");
-                                break;
-                            case 3:
-                                var t3 = Serializer.Deserialize<Type3>(ms);
-                                Console.WriteLine($"Deserialized Object [Type3] -> signal_num: {t3?.signal_num}, status: {t3?.status}");
-                                break;
-                            case 4:
-                                var t4 = Serializer.Deserialize<Type4>(ms);
-                                Console.WriteLine($"Deserialized Object [Type4] -> route_num: {t4?.route_num}, status1: {t4?.status1}, status2: {t4?.status2}, status3: {t4?.status3}");
-                                break;
+                            }
+
+                            string respJson = Encoding.UTF8.GetString(recvBuffer, 0, offset);
+                            
+                            try {
+                                var parsedJson = JsonDocument.Parse(respJson);
+                                string singleLineJson = JsonSerializer.Serialize(parsedJson, jsonOptions);
+                                Console.WriteLine($"[RECV {i + 1}/10] {singleLineJson}");
+                            } catch {
+                                Console.WriteLine($"[RECV {i + 1}/10] {respJson.Replace('\n', ' ').Replace('\r', ' ')}");
+                            }
+                        }
+
+                        if (ws.State == WebSocketState.Open)
+                        {
+                            Console.WriteLine("[INFO] Wait 2 seconds before next loop...");
+                            await Task.Delay(2000);
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Protobuf deserialization error: {ex.Message}");
-                    }
-
-                    // Loop type 1->4 and delay
-                    type = (type % 4) + 1;
-                    Thread.Sleep(2000);
                 }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Connection Error: {ex.Message}");
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[ERROR] Connection Error: {ex.Message}");
+                    Console.WriteLine("[INFO] Retrying in 5 seconds...");
+                    await Task.Delay(5000);
+                }
             }
         }
     }

@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -O2
 LIBS = -lws2_32
 TARGET = server.exe
-SRCS = server.c
+SRCS = server.c mongoose.c
 OBJS = $(SRCS:.c=.o)
 
 .PHONY: all clean run
